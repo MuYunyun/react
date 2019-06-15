@@ -270,6 +270,16 @@ const tests = {
       options: [{additionalHooks: 'useCustomEffect'}],
     },
     {
+      code: `
+        function MyComponent(props) {
+          useCustomEffect(() => {
+            console.log(props.foo);
+          }, []);
+        }
+      `,
+      options: [{additionalHooks: 'useAnotherEffect'}],
+    },
+    {
       // Valid because we don't care about hooks outside of components.
       code: `
         const local = {};
@@ -1001,6 +1011,16 @@ const tests = {
             window.addEventListener('resize', handleResize);
             return () => window.removeEventListener('resize', handleResize);
           });
+        }
+      `,
+    },
+    // Ignore Generic Type Variables for arrow functions
+    {
+      code: `
+        function Example({ prop }) {
+          const bar = useEffect(<T>(a: T): Hello => {
+            prop();
+          }, [prop]);
         }
       `,
     },

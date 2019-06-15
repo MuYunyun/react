@@ -17,6 +17,9 @@ import type {
   Container,
   ChildSet,
 } from './ReactFiberHostConfig';
+import type {ReactEventComponentInstance} from 'shared/ReactTypes';
+import type {SuspenseState} from './ReactFiberSuspenseComponent';
+import type {SuspenseContext} from './ReactFiberSuspenseContext';
 
 import {
   IndeterminateComponent,
@@ -41,6 +44,7 @@ import {
   EventComponent,
   EventTarget,
 } from 'shared/ReactWorkTags';
+import {NoMode, BatchedMode} from './ReactTypeOfMode';
 import {
   Placement,
   Ref,
@@ -65,7 +69,7 @@ import {
   createContainerChildSet,
   appendChildToContainerChildSet,
   finalizeContainerChildren,
-  handleEventComponent,
+  updateEventComponent,
   handleEventTarget,
 } from './ReactFiberHostConfig';
 import {
@@ -74,6 +78,12 @@ import {
   getHostContext,
   popHostContainer,
 } from './ReactFiberHostContext';
+import {
+  suspenseStackCursor,
+  InvisibleParentSuspenseContext,
+  hasSuspenseContext,
+  popSuspenseContext,
+} from './ReactFiberSuspenseContext';
 import {
   isContextProvider as isLegacyContextProvider,
   popContext as popLegacyContext,
@@ -87,9 +97,18 @@ import {
   popHydrationState,
 } from './ReactFiberHydrationContext';
 import {
+  enableSchedulerTracing,
   enableSuspenseServerRenderer,
   enableEventAPI,
 } from 'shared/ReactFeatureFlags';
+import {
+  markDidDeprioritizeIdleSubtree,
+  renderDidSuspend,
+  renderDidSuspendDelayIfPossible,
+} from './ReactFiberWorkLoop';
+import {getEventComponentHostChildrenCount} from './ReactFiberEvents';
+import getComponentName from 'shared/getComponentName';
+import warning from 'shared/warning';
 
 function markUpdate(workInProgress: Fiber) {
   // Tag the fiber with an update effect. This turns a Placement into
@@ -663,7 +682,8 @@ function completeWork(
     case ForwardRef:
       break;
     case SuspenseComponent: {
-      const nextState = workInProgress.memoizedState;
+      popSuspenseContext(workInProgress);
+      const nextState: null | SuspenseState = workInProgress.memoizedState;
       if ((workInProgress.effectTag & DidCapture) !== NoEffect) {
         // Something suspended. Re-render with the fallback children.
         workInProgress.expirationTime = renderExpirationTime;
@@ -672,34 +692,74 @@ function completeWork(
       }
 
       const nextDidTimeout = nextState !== null;
-      const prevDidTimeout = current !== null && current.memoizedState !== null;
-
+      let prevDidTimeout = false;
       if (current === null) {
         // In cases where we didn't find a suitable hydration boundary we never
         // downgraded this to a DehydratedSuspenseComponent, but we still need to
         // pop the hydration state since we might be inside the insertion tree.
         popHydrationState(workInProgress);
-      } else if (!nextDidTimeout && prevDidTimeout) {
-        // We just switched from the fallback to the normal children. Delete
-        // the fallback.
-        // TODO: Would it be better to store the fallback fragment on
-        // the stateNode during the begin phase?
-        const currentFallbackChild: Fiber | null = (current.child: any).sibling;
-        if (currentFallbackChild !== null) {
-          // Deletions go at the beginning of the return fiber's effect list
-          const first = workInProgress.firstEffect;
-          if (first !== null) {
-            workInProgress.firstEffect = currentFallbackChild;
-            currentFallbackChild.nextEffect = first;
-          } else {
-            workInProgress.firstEffect = workInProgress.lastEffect = currentFallbackChild;
-            currentFallbackChild.nextEffect = null;
+      } else {
+        const prevState: null | SuspenseState = current.memoizedState;
+        prevDidTimeout = prevState !== null;
+        if (!nextDidTimeout && prevState !== null) {
+          // We just switched from the fallback to the normal children.
+          // Delete the fallback.
+          // TODO: Would it be better to store the fallback fragment on
+          // the stateNode during the begin phase?
+          const currentFallbackChild: Fiber | null = (current.child: any)
+            .sibling;
+          if (currentFallbackChild !== null) {
+            // Deletions go at the beginning of the return fiber's effect list
+            const first = workInProgress.firstEffect;
+            if (first !== null) {
+              workInProgress.firstEffect = currentFallbackChild;
+              currentFallbackChild.nextEffect = first;
+            } else {
+              workInProgress.firstEffect = workInProgress.lastEffect = currentFallbackChild;
+              currentFallbackChild.nextEffect = null;
+            }
+            currentFallbackChild.effectTag = Deletion;
           }
-          currentFallbackChild.effectTag = Deletion;
+        }
+      }
+
+      if (nextDidTimeout && !prevDidTimeout) {
+        // If this subtreee is running in batched mode we can suspend,
+        // otherwise we won't suspend.
+        // TODO: This will still suspend a synchronous tree if anything
+        // in the concurrent tree already suspended during this render.
+        // This is a known bug.
+        if ((workInProgress.mode & BatchedMode) !== NoMode) {
+          // TODO: Move this back to throwException because this is too late
+          // if this is a large tree which is common for initial loads. We
+          // don't know if we should restart a render or not until we get
+          // this marker, and this is too late.
+          // If this render already had a ping or lower pri updates,
+          // and this is the first time we know we're going to suspend we
+          // should be able to immediately restart from within throwException.
+          const hasInvisibleChildContext =
+            current === null &&
+            workInProgress.memoizedProps.unstable_avoidThisFallback !== true;
+          if (
+            hasInvisibleChildContext ||
+            hasSuspenseContext(
+              suspenseStackCursor.current,
+              (InvisibleParentSuspenseContext: SuspenseContext),
+            )
+          ) {
+            // If this was in an invisible tree or a new render, then showing
+            // this boundary is ok.
+            renderDidSuspend();
+          } else {
+            // Otherwise, we're going to have to hide content so we should
+            // suspend for longer if possible.
+            renderDidSuspendDelayIfPossible();
+          }
         }
       }
 
       if (supportsPersistence) {
+        // TODO: Only schedule updates if not prevDidTimeout.
         if (nextDidTimeout) {
           // If this boundary just timed out, schedule an effect to attach a
           // retry listener to the proimse. This flag is also used to hide the
@@ -708,6 +768,7 @@ function completeWork(
         }
       }
       if (supportsMutation) {
+        // TODO: Only schedule updates if these values are non equal, i.e. it changed.
         if (nextDidTimeout || prevDidTimeout) {
           // If this boundary just timed out, schedule an effect to attach a
           // retry listener to the proimse. This flag is also used to hide the
@@ -748,6 +809,7 @@ function completeWork(
     }
     case DehydratedSuspenseComponent: {
       if (enableSuspenseServerRenderer) {
+        popSuspenseContext(workInProgress);
         if (current === null) {
           let wasHydrated = popHydrationState(workInProgress);
           invariant(
@@ -755,6 +817,9 @@ function completeWork(
             'A dehydrated suspense component was completed without a hydrated node. ' +
               'This is probably a bug in React.',
           );
+          if (enableSchedulerTracing) {
+            markDidDeprioritizeIdleSubtree();
+          }
           skipPastDehydratedSuspenseInstance(workInProgress);
         } else if ((workInProgress.effectTag & DidCapture) === NoEffect) {
           // This boundary did not suspend so it's now hydrated.
@@ -774,9 +839,42 @@ function completeWork(
         popHostContext(workInProgress);
         const rootContainerInstance = getRootHostContainer();
         const responder = workInProgress.type.responder;
-        // Update the props on the event component state node
-        workInProgress.stateNode.props = newProps;
-        handleEventComponent(responder, rootContainerInstance, workInProgress);
+        let eventComponentInstance: ReactEventComponentInstance | null =
+          workInProgress.stateNode;
+
+        if (eventComponentInstance === null) {
+          let responderState = null;
+          if (__DEV__ && !responder.allowMultipleHostChildren) {
+            const hostChildrenCount = getEventComponentHostChildrenCount(
+              workInProgress,
+            );
+            warning(
+              (hostChildrenCount || 0) < 2,
+              'A "<%s>" event component cannot contain multiple host children.',
+              getComponentName(workInProgress.type),
+            );
+          }
+          if (responder.createInitialState !== undefined) {
+            responderState = responder.createInitialState(newProps);
+          }
+          eventComponentInstance = workInProgress.stateNode = {
+            currentFiber: workInProgress,
+            props: newProps,
+            responder,
+            rootEventTypes: null,
+            rootInstance: rootContainerInstance,
+            state: responderState,
+          };
+          markUpdate(workInProgress);
+        } else {
+          // Update the props on the event component state node
+          eventComponentInstance.props = newProps;
+          // Update the root container, so we can properly unmount events at some point
+          eventComponentInstance.rootInstance = rootContainerInstance;
+          // Update the current fiber
+          eventComponentInstance.currentFiber = workInProgress;
+          updateEventComponent(eventComponentInstance);
+        }
       }
       break;
     }
@@ -784,18 +882,18 @@ function completeWork(
       if (enableEventAPI) {
         popHostContext(workInProgress);
         const type = workInProgress.type.type;
-        let node = workInProgress.return;
-        let parentHostInstance = null;
-        // Traverse up the fiber tree till we find a host component fiber
-        while (node !== null) {
-          if (node.tag === HostComponent) {
-            parentHostInstance = node.stateNode;
-            break;
-          }
-          node = node.return;
-        }
-        if (parentHostInstance !== null) {
-          handleEventTarget(type, newProps, parentHostInstance, workInProgress);
+        const rootContainerInstance = getRootHostContainer();
+        const shouldUpdate = handleEventTarget(
+          type,
+          newProps,
+          rootContainerInstance,
+          workInProgress,
+        );
+        // Update the latest props on the stateNode. This is used
+        // during the event phase to find the most current props.
+        workInProgress.stateNode.props = newProps;
+        if (shouldUpdate) {
+          markUpdate(workInProgress);
         }
       }
       break;

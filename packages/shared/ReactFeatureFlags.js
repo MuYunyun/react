@@ -45,9 +45,6 @@ export function addUserTimingListener() {
 // Disable javascript: URL strings in href for XSS protection.
 export const disableJavaScriptURLs = false;
 
-// Disables yielding during render in Concurrent Mode. Used for debugging only.
-export const disableYielding = false;
-
 // React Fire: prevent the value and checked attributes from syncing
 // with their related DOM properties
 export const disableInputAttributeSyncing = false;
@@ -65,6 +62,16 @@ export const warnAboutDeprecatedSetNativeProps = false;
 // Experimental React Events support. Only used in www builds for now.
 export const enableEventAPI = false;
 
-// Enables rewritten version of ReactFiberScheduler. Added in case we need to
-// quickly revert it.
-export const enableNewScheduler = false;
+// New API for JSX transforms to target - https://github.com/reactjs/rfcs/pull/107
+export const enableJSXTransformAPI = false;
+
+// We will enforce mocking scheduler with scheduler/unstable_mock at some point. (v17?)
+// Till then, we warn about the missing mock, but still fallback to a sync mode compatible version
+export const warnAboutMissingMockScheduler = false;
+// Temporary flag to revert the fix in #15650
+export const revertPassiveEffectsChange = false;
+
+// Changes priority of some events like mousemove to user-blocking priority,
+// but without making them discrete. The flag exists in case it causes
+// starvation problems.
+export const enableUserBlockingEvents = false;

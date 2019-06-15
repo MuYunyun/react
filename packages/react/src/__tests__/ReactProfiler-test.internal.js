@@ -12,7 +12,6 @@
 
 let React;
 let ReactFeatureFlags;
-let enableNewScheduler;
 let ReactNoop;
 let Scheduler;
 let ReactCache;
@@ -36,7 +35,6 @@ function loadModules({
   ReactFeatureFlags.enableProfilerTimer = enableProfilerTimer;
   ReactFeatureFlags.enableSchedulerTracing = enableSchedulerTracing;
   ReactFeatureFlags.replayFailedUnitOfWorkWithInvokeGuardedCallback = replayFailedUnitOfWorkWithInvokeGuardedCallback;
-  enableNewScheduler = ReactFeatureFlags.enableNewScheduler;
 
   React = require('react');
   Scheduler = require('scheduler');
@@ -1354,9 +1352,7 @@ describe('Profiler', () => {
             },
           );
         }).toThrow('Expected error onWorkScheduled');
-        if (enableNewScheduler) {
-          expect(Scheduler).toFlushAndYield(['Component:fail']);
-        }
+        expect(Scheduler).toFlushAndYield(['Component:fail']);
         throwInOnWorkScheduled = false;
         expect(onWorkScheduled).toHaveBeenCalled();
 
@@ -1391,14 +1387,10 @@ describe('Profiler', () => {
         // Errors that happen inside of a subscriber should throw,
         throwInOnWorkStarted = true;
         expect(Scheduler).toFlushAndThrow('Expected error onWorkStarted');
-        if (enableNewScheduler) {
-          // Rendering was interrupted by the error that was thrown
-          expect(Scheduler).toHaveYielded([]);
-          // Rendering continues in the next task
-          expect(Scheduler).toFlushAndYield(['Component:text']);
-        } else {
-          expect(Scheduler).toHaveYielded(['Component:text']);
-        }
+        // Rendering was interrupted by the error that was thrown
+        expect(Scheduler).toHaveYielded([]);
+        // Rendering continues in the next task
+        expect(Scheduler).toFlushAndYield(['Component:text']);
         throwInOnWorkStarted = false;
         expect(onWorkStarted).toHaveBeenCalled();
 
@@ -2311,17 +2303,6 @@ describe('Profiler', () => {
           'Text [Sync]',
           'Monkey',
         ]);
-        // The update hasn't expired yet, so we commit nothing.
-        expect(ReactNoop.getChildrenAsJSX()).toEqual(null);
-        expect(onRender).not.toHaveBeenCalled();
-
-        // Advance both React's virtual time and Jest's timers by enough to expire
-        // the update, but not by enough to flush the suspending promise.
-        ReactNoop.expire(10000);
-        await awaitableAdvanceTimers(10000);
-        // No additional rendering work is required, since we already prepared
-        // the placeholder.
-        expect(Scheduler).toHaveYielded([]);
         // Should have committed the placeholder.
         expect(ReactNoop.getChildrenAsJSX()).toEqual('Loading...Sync');
         expect(onRender).toHaveBeenCalledTimes(1);
@@ -2341,7 +2322,7 @@ describe('Profiler', () => {
         expect(onRender).toHaveBeenCalledTimes(2);
 
         // Once the promise resolves, we render the suspended view
-        await awaitableAdvanceTimers(10000);
+        await awaitableAdvanceTimers(20000);
         expect(Scheduler).toHaveYielded(['Promise resolved [Async]']);
         expect(Scheduler).toFlushAndYield(['AsyncText [Async]']);
         expect(ReactNoop.getChildrenAsJSX()).toEqual('AsyncSync');
@@ -2389,16 +2370,8 @@ describe('Profiler', () => {
         jest.runAllTimers();
         await resourcePromise;
 
-        if (enableNewScheduler) {
-          expect(Scheduler).toHaveYielded(['Promise resolved [loaded]']);
-          expect(Scheduler).toFlushExpired(['AsyncText [loaded]']);
-        } else {
-          expect(Scheduler).toHaveYielded([
-            'Promise resolved [loaded]',
-            'AsyncText [loaded]',
-          ]);
-        }
-
+        expect(Scheduler).toHaveYielded(['Promise resolved [loaded]']);
+        expect(Scheduler).toFlushExpired(['AsyncText [loaded]']);
         expect(onInteractionScheduledWorkCompleted).toHaveBeenCalledTimes(1);
         expect(
           onInteractionScheduledWorkCompleted,
@@ -2454,9 +2427,7 @@ describe('Profiler', () => {
         await resourcePromise;
 
         expect(Scheduler).toHaveYielded(['Promise resolved [loaded]']);
-        if (enableNewScheduler) {
-          expect(Scheduler).toFlushExpired([]);
-        }
+        expect(Scheduler).toFlushExpired([]);
 
         expect(onInteractionScheduledWorkCompleted).not.toHaveBeenCalled();
 
@@ -2625,22 +2596,18 @@ describe('Profiler', () => {
         ]);
         onRender.mockClear();
 
-        expect(onInteractionScheduledWorkCompleted).not.toHaveBeenCalled();
+        expect(onInteractionScheduledWorkCompleted).toHaveBeenCalledTimes(1);
+        expect(
+          onInteractionScheduledWorkCompleted.mock.calls[0][0],
+        ).toMatchInteraction(highPriUpdateInteraction);
+        onInteractionScheduledWorkCompleted.mockClear();
 
         Scheduler.advanceTime(100);
         jest.advanceTimersByTime(100);
         await originalPromise;
 
-        if (enableNewScheduler) {
-          expect(Scheduler).toHaveYielded(['Promise resolved [loaded]']);
-          expect(Scheduler).toFlushExpired(['AsyncText [loaded]']);
-        } else {
-          expect(Scheduler).toHaveYielded([
-            'Promise resolved [loaded]',
-            'AsyncText [loaded]',
-          ]);
-        }
-
+        expect(Scheduler).toHaveYielded(['Promise resolved [loaded]']);
+        expect(Scheduler).toFlushExpired(['AsyncText [loaded]']);
         expect(renderer.toJSON()).toEqual(['loaded', 'updated']);
 
         expect(onRender).toHaveBeenCalledTimes(1);
@@ -2655,6 +2622,16 @@ describe('Profiler', () => {
       });
 
       it('handles high-pri renderers between suspended and resolved (async) trees', async () => {
+        // Set up an initial shell. We need to set this up before the test sceanrio
+        // because we want initial render to suspend on navigation to the initial state.
+        let renderer = ReactTestRenderer.create(
+          <React.Profiler id="app" onRender={() => {}}>
+            <React.Suspense fallback={<Text text="loading" />} />
+          </React.Profiler>,
+          {unstable_isConcurrent: true},
+        );
+        expect(Scheduler).toFlushAndYield([]);
+
         const initialRenderInteraction = {
           id: 0,
           name: 'initial render',
@@ -2662,19 +2639,17 @@ describe('Profiler', () => {
         };
 
         const onRender = jest.fn();
-        let renderer;
         SchedulerTracing.unstable_trace(
           initialRenderInteraction.name,
           initialRenderInteraction.timestamp,
           () => {
-            renderer = ReactTestRenderer.create(
+            renderer.update(
               <React.Profiler id="app" onRender={onRender}>
                 <React.Suspense fallback={<Text text="loading" />}>
                   <AsyncText text="loaded" ms={100} />
                 </React.Suspense>
                 <Text text="initial" />
               </React.Profiler>,
-              {unstable_isConcurrent: true},
             );
           },
         );

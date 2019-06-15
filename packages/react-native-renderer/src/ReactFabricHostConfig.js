@@ -14,33 +14,40 @@ import type {
   NativeMethodsMixinType,
   ReactNativeBaseComponentViewConfig,
 } from './ReactNativeTypes';
-import type {ReactEventResponder} from 'shared/ReactTypes';
+import type {ReactEventComponentInstance} from 'shared/ReactTypes';
 
 import {mountSafeCallback_NOT_REALLY_SAFE} from './NativeMethodsMixinUtils';
 import {create, diff} from './ReactNativeAttributePayload';
-import {get as getViewConfigForType} from 'ReactNativeViewConfigRegistry';
 
-import deepFreezeAndThrowOnMutationInDev from 'deepFreezeAndThrowOnMutationInDev';
 import invariant from 'shared/invariant';
 import warningWithoutStack from 'shared/warningWithoutStack';
 
 import {dispatchEvent} from './ReactFabricEventEmitter';
 
 // Modules provided by RN:
-import TextInputState from 'TextInputState';
 import {
+  ReactNativeViewConfigRegistry,
+  TextInputState,
+  deepFreezeAndThrowOnMutationInDev,
+} from 'react-native/Libraries/ReactPrivate/ReactNativePrivateInterface';
+
+const {
   createNode,
   cloneNode,
   cloneNodeWithNewChildren,
   cloneNodeWithNewChildrenAndProps,
   cloneNodeWithNewProps,
-  createChildSet as createChildNodeSet,
-  appendChild as appendChildNode,
-  appendChildToSet as appendChildNodeToSet,
+  createChildSet: createChildNodeSet,
+  appendChild: appendChildNode,
+  appendChildToSet: appendChildNodeToSet,
   completeRoot,
   registerEventHandler,
-} from 'FabricUIManager';
-import UIManager from 'UIManager';
+  measure: fabricMeasure,
+  measureInWindow: fabricMeasureInWindow,
+  measureLayout: fabricMeasureLayout,
+} = nativeFabricUIManager;
+
+const {get: getViewConfigForType} = ReactNativeViewConfigRegistry;
 
 // Counter for uniquely identifying views.
 // % 10 === 1 means it is a rootTag.
@@ -85,15 +92,18 @@ class ReactFabricHostComponent {
   _nativeTag: number;
   viewConfig: ReactNativeBaseComponentViewConfig<>;
   currentProps: Props;
+  _internalInstanceHandle: Object;
 
   constructor(
     tag: number,
     viewConfig: ReactNativeBaseComponentViewConfig<>,
     props: Props,
+    internalInstanceHandle: Object,
   ) {
     this._nativeTag = tag;
     this.viewConfig = viewConfig;
     this.currentProps = props;
+    this._internalInstanceHandle = internalInstanceHandle;
   }
 
   blur() {
@@ -105,15 +115,15 @@ class ReactFabricHostComponent {
   }
 
   measure(callback: MeasureOnSuccessCallback) {
-    UIManager.measure(
-      this._nativeTag,
+    fabricMeasure(
+      this._internalInstanceHandle.stateNode.node,
       mountSafeCallback_NOT_REALLY_SAFE(this, callback),
     );
   }
 
   measureInWindow(callback: MeasureInWindowOnSuccessCallback) {
-    UIManager.measureInWindow(
-      this._nativeTag,
+    fabricMeasureInWindow(
+      this._internalInstanceHandle.stateNode.node,
       mountSafeCallback_NOT_REALLY_SAFE(this, callback),
     );
   }
@@ -123,32 +133,21 @@ class ReactFabricHostComponent {
     onSuccess: MeasureLayoutOnSuccessCallback,
     onFail: () => void /* currently unused */,
   ) {
-    let relativeNode;
-
-    if (typeof relativeToNativeNode === 'number') {
-      // Already a node handle
-      relativeNode = relativeToNativeNode;
-    } else if (relativeToNativeNode._nativeTag) {
-      relativeNode = relativeToNativeNode._nativeTag;
-    } else if (
-      relativeToNativeNode.canonical &&
-      relativeToNativeNode.canonical._nativeTag
+    if (
+      typeof relativeToNativeNode === 'number' ||
+      !(relativeToNativeNode instanceof ReactFabricHostComponent)
     ) {
-      relativeNode = relativeToNativeNode.canonical._nativeTag;
-    }
-
-    if (relativeNode == null) {
       warningWithoutStack(
         false,
-        'Warning: ref.measureLayout must be called with a node handle or a ref to a native component.',
+        'Warning: ref.measureLayout must be called with a ref to a native component.',
       );
 
       return;
     }
 
-    UIManager.measureLayout(
-      this._nativeTag,
-      relativeNode,
+    fabricMeasureLayout(
+      this._internalInstanceHandle.stateNode.node,
+      relativeToNativeNode._internalInstanceHandle.stateNode.node,
       mountSafeCallback_NOT_REALLY_SAFE(this, onFail),
       mountSafeCallback_NOT_REALLY_SAFE(this, onSuccess),
     );
@@ -197,11 +196,6 @@ export function createInstance(
     }
   }
 
-  invariant(
-    type !== 'RCTView' || !hostContext.isInAParentText,
-    'Nesting of <View> within <Text> is not currently supported.',
-  );
-
   const updatePayload = create(props, viewConfig.validAttributes);
 
   const node = createNode(
@@ -212,7 +206,12 @@ export function createInstance(
     internalInstanceHandle, // internalInstanceHandle
   );
 
-  const component = new ReactFabricHostComponent(tag, viewConfig, props);
+  const component = new ReactFabricHostComponent(
+    tag,
+    viewConfig,
+    props,
+    internalInstanceHandle,
+  );
 
   return {
     node: node,
@@ -434,19 +433,45 @@ export function replaceContainerChildren(
   newChildren: ChildSet,
 ): void {}
 
-export function handleEventComponent(
-  eventResponder: ReactEventResponder,
-  rootContainerInstance: Container,
-  internalInstanceHandle: Object,
+export function mountEventComponent(
+  eventComponentInstance: ReactEventComponentInstance,
 ) {
-  // TODO: add handleEventComponent implementation
+  throw new Error('Not yet implemented.');
+}
+
+export function updateEventComponent(
+  eventComponentInstance: ReactEventComponentInstance,
+) {
+  throw new Error('Not yet implemented.');
+}
+
+export function unmountEventComponent(
+  eventComponentInstance: ReactEventComponentInstance,
+): void {
+  throw new Error('Not yet implemented.');
+}
+
+export function getEventTargetChildElement(
+  type: Symbol | number,
+  props: Props,
+): null {
+  throw new Error('Not yet implemented.');
 }
 
 export function handleEventTarget(
   type: Symbol | number,
   props: Props,
-  parentInstance: Container,
+  rootContainerInstance: Container,
   internalInstanceHandle: Object,
-) {
-  // TODO: add handleEventTarget implementation
+): boolean {
+  throw new Error('Not yet implemented.');
+}
+
+export function commitEventTarget(
+  type: Symbol | number,
+  props: Props,
+  instance: Instance,
+  parentInstance: Instance,
+): void {
+  throw new Error('Not yet implemented.');
 }

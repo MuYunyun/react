@@ -18,40 +18,44 @@ const bundleTypes = {
   RN_FB_PROFILING: 'RN_FB_PROFILING',
 };
 
-const UMD_DEV = bundleTypes.UMD_DEV;
-const UMD_PROD = bundleTypes.UMD_PROD;
-const UMD_PROFILING = bundleTypes.UMD_PROFILING;
-const NODE_DEV = bundleTypes.NODE_DEV;
-const NODE_PROD = bundleTypes.NODE_PROD;
-const NODE_PROFILING = bundleTypes.NODE_PROFILING;
-const FB_WWW_DEV = bundleTypes.FB_WWW_DEV;
-const FB_WWW_PROD = bundleTypes.FB_WWW_PROD;
-const FB_WWW_PROFILING = bundleTypes.FB_WWW_PROFILING;
-const RN_OSS_DEV = bundleTypes.RN_OSS_DEV;
-const RN_OSS_PROD = bundleTypes.RN_OSS_PROD;
-const RN_OSS_PROFILING = bundleTypes.RN_OSS_PROFILING;
-const RN_FB_DEV = bundleTypes.RN_FB_DEV;
-const RN_FB_PROD = bundleTypes.RN_FB_PROD;
-const RN_FB_PROFILING = bundleTypes.RN_FB_PROFILING;
+const {
+  UMD_DEV,
+  UMD_PROD,
+  UMD_PROFILING,
+  NODE_DEV,
+  NODE_PROD,
+  NODE_PROFILING,
+  FB_WWW_DEV,
+  FB_WWW_PROD,
+  FB_WWW_PROFILING,
+  RN_OSS_DEV,
+  RN_OSS_PROD,
+  RN_OSS_PROFILING,
+  RN_FB_DEV,
+  RN_FB_PROD,
+  RN_FB_PROFILING,
+} = bundleTypes;
 
 const moduleTypes = {
+  // React
   ISOMORPHIC: 'ISOMORPHIC',
+  // Individual renderers. They bundle the reconciler. (e.g. ReactDOM)
   RENDERER: 'RENDERER',
+  // Helper packages that access specific renderer's internals. (e.g. TestUtils)
   RENDERER_UTILS: 'RENDERER_UTILS',
+  // Standalone reconciler for third-party renderers.
   RECONCILER: 'RECONCILER',
+  // Non-Fiber implementations like SSR and Shallow renderers.
   NON_FIBER_RENDERER: 'NON_FIBER_RENDERER',
 };
 
-// React
-const ISOMORPHIC = moduleTypes.ISOMORPHIC;
-// Individual renderers. They bundle the reconciler. (e.g. ReactDOM)
-const RENDERER = moduleTypes.RENDERER;
-// Helper packages that access specific renderer's internals. (e.g. TestUtils)
-const RENDERER_UTILS = moduleTypes.RENDERER_UTILS;
-// Standalone reconciler for third-party renderers.
-const RECONCILER = moduleTypes.RECONCILER;
-// Non-Fiber implementations like SSR and Shallow renderers.
-const NON_FIBER_RENDERER = moduleTypes.NON_FIBER_RENDERER;
+const {
+  ISOMORPHIC,
+  RENDERER,
+  RENDERER_UTILS,
+  RECONCILER,
+  NON_FIBER_RENDERER,
+} = moduleTypes;
 
 const bundles = [
   /******* Isomorphic *******/
@@ -110,22 +114,6 @@ const bundles = [
     externals: ['react'],
   },
 
-  /******* React DOM (new scheduler) *******/
-  {
-    bundleTypes: [
-      FB_WWW_DEV,
-      FB_WWW_PROD,
-      FB_WWW_PROFILING,
-      NODE_DEV,
-      NODE_PROD,
-      NODE_PROFILING,
-    ],
-    moduleType: RENDERER,
-    entry: 'react-dom/unstable-new-scheduler',
-    global: 'ReactDOMNewScheduler',
-    externals: ['react'],
-  },
-
   /******* Test Utils *******/
   {
     moduleType: RENDERER_UTILS,
@@ -166,7 +154,6 @@ const bundles = [
     global: 'ReactDOMServer',
     externals: ['react'],
   },
-
   {
     bundleTypes: [NODE_DEV, NODE_PROD],
     moduleType: NON_FIBER_RENDERER,
@@ -217,37 +204,14 @@ const bundles = [
     moduleType: RENDERER,
     entry: 'react-native-renderer',
     global: 'ReactNativeRenderer',
-    externals: [
-      'ExceptionsManager',
-      'InitializeCore',
-      'Platform',
-      'RCTEventEmitter',
-      'TextInputState',
-      'UIManager',
-      'deepDiffer',
-      'deepFreezeAndThrowOnMutationInDev',
-      'flattenStyle',
-      'ReactNativeViewConfigRegistry',
-    ],
+    externals: ['react-native'],
   },
-
   {
     bundleTypes: [RN_OSS_DEV, RN_OSS_PROD, RN_OSS_PROFILING],
     moduleType: RENDERER,
     entry: 'react-native-renderer',
     global: 'ReactNativeRenderer',
-    externals: [
-      'ExceptionsManager',
-      'InitializeCore',
-      'Platform',
-      'RCTEventEmitter',
-      'TextInputState',
-      'UIManager',
-      'deepDiffer',
-      'deepFreezeAndThrowOnMutationInDev',
-      'flattenStyle',
-      'ReactNativeViewConfigRegistry',
-    ],
+    externals: ['react-native'],
   },
 
   /******* React Native Fabric *******/
@@ -256,39 +220,14 @@ const bundles = [
     moduleType: RENDERER,
     entry: 'react-native-renderer/fabric',
     global: 'ReactFabric',
-    externals: [
-      'ExceptionsManager',
-      'InitializeCore',
-      'Platform',
-      'RCTEventEmitter',
-      'TextInputState',
-      'UIManager',
-      'FabricUIManager',
-      'deepDiffer',
-      'deepFreezeAndThrowOnMutationInDev',
-      'flattenStyle',
-      'ReactNativeViewConfigRegistry',
-    ],
+    externals: ['react-native'],
   },
-
   {
     bundleTypes: [RN_OSS_DEV, RN_OSS_PROD, RN_OSS_PROFILING],
     moduleType: RENDERER,
     entry: 'react-native-renderer/fabric',
     global: 'ReactFabric',
-    externals: [
-      'ExceptionsManager',
-      'InitializeCore',
-      'Platform',
-      'RCTEventEmitter',
-      'TextInputState',
-      'UIManager',
-      'FabricUIManager',
-      'deepDiffer',
-      'deepFreezeAndThrowOnMutationInDev',
-      'flattenStyle',
-      'ReactNativeViewConfigRegistry',
-    ],
+    externals: ['react-native'],
   },
 
   /******* React Test Renderer *******/
@@ -299,7 +238,6 @@ const bundles = [
     global: 'ReactTestRenderer',
     externals: ['react', 'scheduler', 'scheduler/unstable_mock'],
   },
-
   {
     bundleTypes: [FB_WWW_DEV, NODE_DEV, NODE_PROD, UMD_DEV, UMD_PROD],
     moduleType: NON_FIBER_RENDERER,
@@ -432,7 +370,14 @@ const bundles = [
 
   /******* React Scheduler Mock (experimental) *******/
   {
-    bundleTypes: [NODE_DEV, NODE_PROD, FB_WWW_DEV, FB_WWW_PROD],
+    bundleTypes: [
+      UMD_DEV,
+      UMD_PROD,
+      NODE_DEV,
+      NODE_PROD,
+      FB_WWW_DEV,
+      FB_WWW_PROD,
+    ],
     moduleType: ISOMORPHIC,
     entry: 'scheduler/unstable_mock',
     global: 'SchedulerMock',
@@ -450,16 +395,30 @@ const bundles = [
 
   /******* ESLint Plugin for Hooks (proposal) *******/
   {
-    // TODO: it's awkward to create a bundle for this
-    // but if we don't, the package won't get copied.
-    // We also can't create just DEV bundle because
-    // it contains a NODE_ENV check inside.
-    // We should probably tweak our build process
-    // to allow "raw" packages that don't get bundled.
+    // TODO: it's awkward to create a bundle for this but if we don't, the package
+    // won't get copied. We also can't create just DEV bundle because it contains a
+    // NODE_ENV check inside. We should probably tweak our build process to allow
+    // "raw" packages that don't get bundled.
     bundleTypes: [NODE_DEV, NODE_PROD, FB_WWW_DEV],
     moduleType: ISOMORPHIC,
     entry: 'eslint-plugin-react-hooks',
     global: 'ESLintPluginReactHooks',
+    externals: [],
+  },
+
+  /******* React Fresh *******/
+  {
+    bundleTypes: [NODE_DEV, NODE_PROD],
+    moduleType: ISOMORPHIC,
+    entry: 'react-fresh/babel',
+    global: 'ReactFreshBabelPlugin',
+    externals: [],
+  },
+  {
+    bundleTypes: [NODE_DEV, NODE_PROD],
+    moduleType: ISOMORPHIC,
+    entry: 'react-fresh/runtime',
+    global: 'ReactFreshRuntime',
     externals: [],
   },
 
@@ -506,7 +465,7 @@ const bundles = [
     moduleType: NON_FIBER_RENDERER,
     entry: 'react-events/press',
     global: 'ReactEventsPress',
-    externals: [],
+    externals: ['react'],
   },
 
   {
@@ -521,7 +480,7 @@ const bundles = [
     moduleType: NON_FIBER_RENDERER,
     entry: 'react-events/hover',
     global: 'ReactEventsHover',
-    externals: [],
+    externals: ['react'],
   },
 
   {
@@ -536,7 +495,22 @@ const bundles = [
     moduleType: NON_FIBER_RENDERER,
     entry: 'react-events/focus',
     global: 'ReactEventsFocus',
-    externals: [],
+    externals: ['react'],
+  },
+
+  {
+    bundleTypes: [
+      UMD_DEV,
+      UMD_PROD,
+      NODE_DEV,
+      NODE_PROD,
+      FB_WWW_DEV,
+      FB_WWW_PROD,
+    ],
+    moduleType: NON_FIBER_RENDERER,
+    entry: 'react-events/focus-scope',
+    global: 'ReactEventsFocusScope',
+    externals: ['react'],
   },
 
   {
@@ -551,7 +525,7 @@ const bundles = [
     moduleType: NON_FIBER_RENDERER,
     entry: 'react-events/swipe',
     global: 'ReactEventsSwipe',
-    externals: [],
+    externals: ['react'],
   },
 
   {
@@ -566,7 +540,22 @@ const bundles = [
     moduleType: NON_FIBER_RENDERER,
     entry: 'react-events/drag',
     global: 'ReactEventsDrag',
-    externals: [],
+    externals: ['react'],
+  },
+
+  {
+    bundleTypes: [
+      UMD_DEV,
+      UMD_PROD,
+      NODE_DEV,
+      NODE_PROD,
+      FB_WWW_DEV,
+      FB_WWW_PROD,
+    ],
+    moduleType: NON_FIBER_RENDERER,
+    entry: 'react-events/scroll',
+    global: 'ReactEventsScroll',
+    externals: ['react'],
   },
 ];
 
@@ -587,6 +576,8 @@ function deepFreeze(o) {
 
 // Don't accidentally mutate config as part of the build
 deepFreeze(bundles);
+deepFreeze(bundleTypes);
+deepFreeze(moduleTypes);
 
 module.exports = {
   bundleTypes,

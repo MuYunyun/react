@@ -11,9 +11,17 @@ import type {AnyNativeEvent} from 'events/PluginModuleType';
 import type {Fiber} from 'react-reconciler/src/ReactFiber';
 import type {DOMTopLevelEventType} from 'events/TopLevelEventTypes';
 
-import {batchedUpdates, interactiveUpdates} from 'events/ReactGenericBatching';
+// Intentionally not named imports because Rollup would use dynamic dispatch for
+// CommonJS interop named imports.
+import * as Scheduler from 'scheduler';
+
+import {
+  batchedEventUpdates,
+  discreteUpdates,
+  flushDiscreteUpdatesIfNeeded,
+} from 'events/ReactGenericBatching';
 import {runExtractedPluginEventsInBatch} from 'events/EventPluginHub';
-import {runResponderEventsInBatch} from '../events/DOMEventResponderSystem';
+import {dispatchEventForResponderEventSystem} from '../events/DOMEventResponderSystem';
 import {isFiberMounted} from 'react-reconciler/reflection';
 import {HostRoot} from 'shared/ReactWorkTags';
 import {
@@ -28,7 +36,7 @@ import {
 import {
   addEventBubbleListener,
   addEventCaptureListener,
-  addEventListener,
+  addEventCaptureListenerWithPassiveFlag,
 } from './EventListener';
 import getEventTarget from './getEventTarget';
 import {getClosestInstanceFromNode} from '../client/ReactDOMComponentTree';
@@ -36,9 +44,22 @@ import SimpleEventPlugin from './SimpleEventPlugin';
 import {getRawEventName} from './DOMTopLevelEventTypes';
 import {passiveBrowserEventsSupported} from './checkPassiveEvents';
 
-import {enableEventAPI} from 'shared/ReactFeatureFlags';
+import {
+  enableEventAPI,
+  enableUserBlockingEvents,
+} from 'shared/ReactFeatureFlags';
+import {
+  UserBlockingEvent,
+  ContinuousEvent,
+  DiscreteEvent,
+} from 'shared/ReactTypes';
 
-const {isInteractiveTopLevelEventType} = SimpleEventPlugin;
+const {
+  unstable_UserBlockingPriority: UserBlockingPriority,
+  unstable_runWithPriority: runWithPriority,
+} = Scheduler;
+
+const {getEventPriority} = SimpleEventPlugin;
 
 const CALLBACK_BOOKKEEPING_POOL_SIZE = 10;
 const callbackBookkeepingPool = [];
@@ -48,7 +69,6 @@ type BookKeepingInstance = {
   nativeEvent: AnyNativeEvent | null,
   targetInst: Fiber | null,
   ancestors: Array<Fiber | null>,
-  eventSystemFlags: EventSystemFlags,
 };
 
 /**
@@ -75,14 +95,12 @@ function getTopLevelCallbackBookKeeping(
   topLevelType: DOMTopLevelEventType,
   nativeEvent: AnyNativeEvent,
   targetInst: Fiber | null,
-  eventSystemFlags: EventSystemFlags,
 ): BookKeepingInstance {
   if (callbackBookkeepingPool.length) {
     const instance = callbackBookkeepingPool.pop();
     instance.topLevelType = topLevelType;
     instance.nativeEvent = nativeEvent;
     instance.targetInst = targetInst;
-    instance.eventSystemFlags = eventSystemFlags;
     return instance;
   }
   return {
@@ -90,7 +108,6 @@ function getTopLevelCallbackBookKeeping(
     nativeEvent,
     targetInst,
     ancestors: [],
-    eventSystemFlags,
   };
 }
 
@@ -101,7 +118,6 @@ function releaseTopLevelCallbackBookKeeping(
   instance.nativeEvent = null;
   instance.targetInst = null;
   instance.ancestors.length = 0;
-  instance.eventSystemFlags = 0;
   if (callbackBookkeepingPool.length < CALLBACK_BOOKKEEPING_POOL_SIZE) {
     callbackBookkeepingPool.push(instance);
   }
@@ -131,28 +147,16 @@ function handleTopLevel(bookKeeping: BookKeepingInstance) {
 
   for (let i = 0; i < bookKeeping.ancestors.length; i++) {
     targetInst = bookKeeping.ancestors[i];
-    const eventSystemFlags = bookKeeping.eventSystemFlags;
     const eventTarget = getEventTarget(bookKeeping.nativeEvent);
     const topLevelType = ((bookKeeping.topLevelType: any): DOMTopLevelEventType);
     const nativeEvent = ((bookKeeping.nativeEvent: any): AnyNativeEvent);
 
-    if (eventSystemFlags === PLUGIN_EVENT_SYSTEM) {
-      runExtractedPluginEventsInBatch(
-        topLevelType,
-        targetInst,
-        nativeEvent,
-        eventTarget,
-      );
-    } else if (enableEventAPI) {
-      // Responder event system (experimental event API)
-      runResponderEventsInBatch(
-        topLevelType,
-        targetInst,
-        nativeEvent,
-        eventTarget,
-        eventSystemFlags,
-      );
-    }
+    runExtractedPluginEventsInBatch(
+      topLevelType,
+      targetInst,
+      nativeEvent,
+      eventTarget,
+    );
   }
 }
 
@@ -184,7 +188,6 @@ export function trapCapturedEvent(
 export function trapEventForResponderEventSystem(
   element: Document | Element | Node,
   topLevelType: DOMTopLevelEventType,
-  capture: boolean,
   passive: boolean,
 ): void {
   if (enableEventAPI) {
@@ -206,12 +209,18 @@ export function trapEventForResponderEventSystem(
     } else {
       eventFlags |= IS_ACTIVE;
     }
-    // Check if interactive and wrap in interactiveUpdates
+    // Check if interactive and wrap in discreteUpdates
     const listener = dispatchEvent.bind(null, topLevelType, eventFlags);
-    addEventListener(element, rawEventName, listener, {
-      capture,
-      passive,
-    });
+    if (passiveBrowserEventsSupported) {
+      addEventCaptureListenerWithPassiveFlag(
+        element,
+        rawEventName,
+        listener,
+        passive,
+      );
+    } else {
+      addEventCaptureListener(element, rawEventName, listener);
+    }
   }
 }
 
@@ -220,12 +229,29 @@ function trapEventForPluginEventSystem(
   topLevelType: DOMTopLevelEventType,
   capture: boolean,
 ): void {
-  const dispatch = isInteractiveTopLevelEventType(topLevelType)
-    ? dispatchInteractiveEvent
-    : dispatchEvent;
+  let listener;
+  switch (getEventPriority(topLevelType)) {
+    case DiscreteEvent:
+      listener = dispatchDiscreteEvent.bind(
+        null,
+        topLevelType,
+        PLUGIN_EVENT_SYSTEM,
+      );
+      break;
+    case UserBlockingEvent:
+      listener = dispatchUserBlockingUpdate.bind(
+        null,
+        topLevelType,
+        PLUGIN_EVENT_SYSTEM,
+      );
+      break;
+    case ContinuousEvent:
+    default:
+      listener = dispatchEvent.bind(null, topLevelType, PLUGIN_EVENT_SYSTEM);
+      break;
+  }
+
   const rawEventName = getRawEventName(topLevelType);
-  // Check if interactive and wrap in interactiveUpdates
-  const listener = dispatch.bind(null, topLevelType, PLUGIN_EVENT_SYSTEM);
   if (capture) {
     addEventCaptureListener(element, rawEventName, listener);
   } else {
@@ -233,13 +259,45 @@ function trapEventForPluginEventSystem(
   }
 }
 
-function dispatchInteractiveEvent(topLevelType, eventSystemFlags, nativeEvent) {
-  interactiveUpdates(
-    dispatchEvent,
+function dispatchDiscreteEvent(topLevelType, eventSystemFlags, nativeEvent) {
+  flushDiscreteUpdatesIfNeeded(nativeEvent.timeStamp);
+  discreteUpdates(dispatchEvent, topLevelType, eventSystemFlags, nativeEvent);
+}
+
+function dispatchUserBlockingUpdate(
+  topLevelType,
+  eventSystemFlags,
+  nativeEvent,
+) {
+  if (enableUserBlockingEvents) {
+    runWithPriority(
+      UserBlockingPriority,
+      dispatchEvent.bind(null, topLevelType, eventSystemFlags, nativeEvent),
+    );
+  } else {
+    dispatchEvent(topLevelType, eventSystemFlags, nativeEvent);
+  }
+}
+
+function dispatchEventForPluginEventSystem(
+  topLevelType: DOMTopLevelEventType,
+  eventSystemFlags: EventSystemFlags,
+  nativeEvent: AnyNativeEvent,
+  targetInst: null | Fiber,
+): void {
+  const bookKeeping = getTopLevelCallbackBookKeeping(
     topLevelType,
-    eventSystemFlags,
     nativeEvent,
+    targetInst,
   );
+
+  try {
+    // Event queue being processed in the same cycle allows
+    // `preventDefault`.
+    batchedEventUpdates(handleTopLevel, bookKeeping);
+  } finally {
+    releaseTopLevelCallbackBookKeeping(bookKeeping);
+  }
 }
 
 export function dispatchEvent(
@@ -250,9 +308,9 @@ export function dispatchEvent(
   if (!_enabled) {
     return;
   }
-
   const nativeEventTarget = getEventTarget(nativeEvent);
   let targetInst = getClosestInstanceFromNode(nativeEventTarget);
+
   if (
     targetInst !== null &&
     typeof targetInst.tag === 'number' &&
@@ -265,18 +323,30 @@ export function dispatchEvent(
     targetInst = null;
   }
 
-  const bookKeeping = getTopLevelCallbackBookKeeping(
-    topLevelType,
-    nativeEvent,
-    targetInst,
-    eventSystemFlags,
-  );
-
-  try {
-    // Event queue being processed in the same cycle allows
-    // `preventDefault`.
-    batchedUpdates(handleTopLevel, bookKeeping);
-  } finally {
-    releaseTopLevelCallbackBookKeeping(bookKeeping);
+  if (enableEventAPI) {
+    if (eventSystemFlags === PLUGIN_EVENT_SYSTEM) {
+      dispatchEventForPluginEventSystem(
+        topLevelType,
+        eventSystemFlags,
+        nativeEvent,
+        targetInst,
+      );
+    } else {
+      // Responder event system (experimental event API)
+      dispatchEventForResponderEventSystem(
+        topLevelType,
+        targetInst,
+        nativeEvent,
+        nativeEventTarget,
+        eventSystemFlags,
+      );
+    }
+  } else {
+    dispatchEventForPluginEventSystem(
+      topLevelType,
+      eventSystemFlags,
+      nativeEvent,
+      targetInst,
+    );
   }
 }

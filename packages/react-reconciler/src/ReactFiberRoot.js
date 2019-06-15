@@ -9,17 +9,15 @@
 
 import type {Fiber} from './ReactFiber';
 import type {ExpirationTime} from './ReactFiberExpirationTime';
+import type {RootTag} from 'shared/ReactRootTags';
 import type {TimeoutHandle, NoTimeout} from './ReactFiberHostConfig';
-import type {Thenable} from './ReactFiberScheduler';
+import type {Thenable} from './ReactFiberWorkLoop';
 import type {Interaction} from 'scheduler/src/Tracing';
 
 import {noTimeout} from './ReactFiberHostConfig';
 import {createHostRootFiber} from './ReactFiber';
 import {NoWork} from './ReactFiberExpirationTime';
-import {
-  enableSchedulerTracing,
-  enableNewScheduler,
-} from 'shared/ReactFeatureFlags';
+import {enableSchedulerTracing} from 'shared/ReactFeatureFlags';
 import {unstable_getThreadID} from 'scheduler/tracing';
 
 // TODO: This should be lifted into the renderer.
@@ -33,6 +31,9 @@ export type Batch = {
 export type PendingInteractionMap = Map<ExpirationTime, Set<Interaction>>;
 
 type BaseFiberRootProperties = {|
+  // The type of root (legacy, batched, concurrent, etc.)
+  tag: RootTag,
+
   // Any additional information from the host associated with this root.
   containerInfo: any,
   // Used only by persistent updates.
@@ -40,32 +41,12 @@ type BaseFiberRootProperties = {|
   // The currently active root fiber. This is the mutable root of the tree.
   current: Fiber,
 
-  // The following priority levels are used to distinguish between 1)
-  // uncommitted work, 2) uncommitted work that is suspended, and 3) uncommitted
-  // work that may be unsuspended. We choose not to track each individual
-  // pending level, trading granularity for performance.
-  //
-  // The earliest and latest priority levels that are suspended from committing.
-  earliestSuspendedTime: ExpirationTime,
-  latestSuspendedTime: ExpirationTime,
-  // The earliest and latest priority levels that are not known to be suspended.
-  earliestPendingTime: ExpirationTime,
-  latestPendingTime: ExpirationTime,
-  // The latest priority level that was pinged by a resolved promise and can
-  // be retried.
-  latestPingedTime: ExpirationTime,
-
   pingCache:
     | WeakMap<Thenable, Set<ExpirationTime>>
     | Map<Thenable, Set<ExpirationTime>>
     | null,
 
-  // If an error is thrown, and there are no more updates in the queue, we try
-  // rendering from the root one more time, synchronously, before handling
-  // the error.
-  didError: boolean,
-
-  pendingCommitExpirationTime: ExpirationTime,
+  finishedExpirationTime: ExpirationTime,
   // A finished work-in-progress HostRoot that's ready to be committed.
   finishedWork: Fiber | null,
   // Timeout handle returned by setTimeout. Used to cancel a pending timeout, if
@@ -76,22 +57,19 @@ type BaseFiberRootProperties = {|
   pendingContext: Object | null,
   // Determines if we should attempt to hydrate on the initial mount
   +hydrate: boolean,
-  // Remaining expiration time on this root.
-  // TODO: Lift this into the renderer
-  nextExpirationTimeToWorkOn: ExpirationTime,
-  expirationTime: ExpirationTime,
   // List of top-level batches. This list indicates whether a commit should be
   // deferred. Also contains completion callbacks.
   // TODO: Lift this into the renderer
   firstBatch: Batch | null,
-  // Linked-list of roots
-  nextScheduledRoot: FiberRoot | null,
-
-  // New Scheduler fields
+  // Node returned by Scheduler.scheduleCallback
   callbackNode: *,
+  // Expiration of the callback associated with this root
   callbackExpirationTime: ExpirationTime,
+  // The earliest pending expiration time that exists in the tree
   firstPendingTime: ExpirationTime,
+  // The latest pending expiration time that exists in the tree
   lastPendingTime: ExpirationTime,
+  // The time at which a suspended component pinged the root to render again
   pingTime: ExpirationTime,
 |};
 
@@ -115,36 +93,24 @@ export type FiberRoot = {
   ...ProfilingOnlyFiberRootProperties,
 };
 
-function FiberRootNode(containerInfo, hydrate) {
+function FiberRootNode(containerInfo, tag, hydrate) {
+  this.tag = tag;
   this.current = null;
   this.containerInfo = containerInfo;
   this.pendingChildren = null;
   this.pingCache = null;
-  this.pendingCommitExpirationTime = NoWork;
+  this.finishedExpirationTime = NoWork;
   this.finishedWork = null;
   this.timeoutHandle = noTimeout;
   this.context = null;
   this.pendingContext = null;
   this.hydrate = hydrate;
   this.firstBatch = null;
-
-  if (enableNewScheduler) {
-    this.callbackNode = null;
-    this.callbackExpirationTime = NoWork;
-    this.firstPendingTime = NoWork;
-    this.lastPendingTime = NoWork;
-    this.pingTime = NoWork;
-  } else {
-    this.earliestPendingTime = NoWork;
-    this.latestPendingTime = NoWork;
-    this.earliestSuspendedTime = NoWork;
-    this.latestSuspendedTime = NoWork;
-    this.latestPingedTime = NoWork;
-    this.didError = false;
-    this.nextExpirationTimeToWorkOn = NoWork;
-    this.expirationTime = NoWork;
-    this.nextScheduledRoot = null;
-  }
+  this.callbackNode = null;
+  this.callbackExpirationTime = NoWork;
+  this.firstPendingTime = NoWork;
+  this.lastPendingTime = NoWork;
+  this.pingTime = NoWork;
 
   if (enableSchedulerTracing) {
     this.interactionThreadID = unstable_getThreadID();
@@ -155,14 +121,14 @@ function FiberRootNode(containerInfo, hydrate) {
 
 export function createFiberRoot(
   containerInfo: any,
-  isConcurrent: boolean,
+  tag: RootTag,
   hydrate: boolean,
 ): FiberRoot {
-  const root: FiberRoot = (new FiberRootNode(containerInfo, hydrate): any);
+  const root: FiberRoot = (new FiberRootNode(containerInfo, tag, hydrate): any);
 
   // Cyclic construction. This cheats the type system right now because
   // stateNode is any.
-  const uninitializedFiber = createHostRootFiber(isConcurrent);
+  const uninitializedFiber = createHostRootFiber(tag);
   root.current = uninitializedFiber;
   uninitializedFiber.stateNode = root;
 
