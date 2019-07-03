@@ -12,10 +12,10 @@ can be found [here](./docs).
 
 ## EventComponent
 
-An Event Component is defined using `React.unstable_createEventComponent`:
+An Event Component is defined using `React.unstable_createEvent`:
 
 ```js
-const EventComponent = React.unstable_createEventComponent(
+const EventComponent = React.unstable_createEvent(
   responder: EventResponder,
   displayName: string
 );
@@ -121,11 +121,7 @@ Component instance.
 
 Returns `true` if the instance has taken ownership of the responder.
 
-### isEventWithinTouchHitTarget(event: ResponderEvent): boolean
-
-Returns `true` if the global coordinates lie within the TouchHitTarget.
-
-### isTargetWithinElement(target: Element, element: Element): boolean
+### isTargetWithinNode(target: Element, element: Element): boolean
 
 Returns `true` if `target` is a child of `element`.
 
