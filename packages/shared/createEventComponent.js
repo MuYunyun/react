@@ -8,29 +8,11 @@
 
 import type {ReactEventResponder, ReactEventComponent} from 'shared/ReactTypes';
 import {REACT_EVENT_COMPONENT_TYPE} from 'shared/ReactSymbols';
+import {hasBadMapPolyfill} from './hasBadMapPolyfill';
 
-let hasBadMapPolyfill;
-
-if (__DEV__) {
-  hasBadMapPolyfill = false;
-  try {
-    const frozenObject = Object.freeze({});
-    const testMap = new Map([[frozenObject, null]]);
-    const testSet = new Set([frozenObject]);
-    // This is necessary for Rollup to not consider these unused.
-    // https://github.com/rollup/rollup/issues/1771
-    // TODO: we can remove these if Rollup fixes the bug.
-    testMap.set(0, 0);
-    testSet.add(0);
-  } catch (e) {
-    // TODO: Consider warning about bad polyfills
-    hasBadMapPolyfill = true;
-  }
-}
-
-export default function createEventComponent<T, E, C>(
-  responder: ReactEventResponder<T, E, C>,
-): ReactEventComponent<T, E, C> {
+export default function createEventComponent<E, C>(
+  responder: ReactEventResponder<E, C>,
+): ReactEventComponent<E, C> {
   // We use responder as a Map key later on. When we have a bad
   // polyfill, then we can't use it as a key as the polyfill tries
   // to add a property to the object.
@@ -39,7 +21,7 @@ export default function createEventComponent<T, E, C>(
   }
   const eventComponent = {
     $$typeof: REACT_EVENT_COMPONENT_TYPE,
-    responder: responder,
+    responder,
   };
   if (__DEV__) {
     Object.freeze(eventComponent);

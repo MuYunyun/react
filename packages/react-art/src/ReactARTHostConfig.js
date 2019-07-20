@@ -428,44 +428,39 @@ export function unhideTextInstance(textInstance, text): void {
 }
 
 export function mountEventComponent(
-  eventComponentInstance: ReactEventComponentInstance<any, any, any>,
+  eventComponentInstance: ReactEventComponentInstance<any, any>,
 ) {
   throw new Error('Not yet implemented.');
 }
 
 export function updateEventComponent(
-  eventComponentInstance: ReactEventComponentInstance<any, any, any>,
+  eventComponentInstance: ReactEventComponentInstance<any, any>,
 ) {
   throw new Error('Not yet implemented.');
 }
 
 export function unmountEventComponent(
-  eventComponentInstance: ReactEventComponentInstance<any, any, any>,
+  eventComponentInstance: ReactEventComponentInstance<any, any>,
 ): void {
   throw new Error('Not yet implemented.');
 }
 
-export function getEventTargetChildElement(
-  type: Symbol | number,
-  props: Props,
-): null {
+export function getFundamentalComponentInstance(fundamentalInstance) {
   throw new Error('Not yet implemented.');
 }
 
-export function handleEventTarget(
-  type: Symbol | number,
-  props: Props,
-  rootContainerInstance: Container,
-  internalInstanceHandle: Object,
-): boolean {
+export function mountFundamentalComponent(fundamentalInstance) {
   throw new Error('Not yet implemented.');
 }
 
-export function commitEventTarget(
-  type: Symbol | number,
-  props: Props,
-  instance: Instance,
-  parentInstance: Instance,
-): void {
+export function shouldUpdateFundamentalComponent(fundamentalInstance) {
+  throw new Error('Not yet implemented.');
+}
+
+export function updateFundamentalComponent(fundamentalInstance) {
+  throw new Error('Not yet implemented.');
+}
+
+export function unmountFundamentalComponent(fundamentalInstance) {
   throw new Error('Not yet implemented.');
 }

@@ -402,7 +402,7 @@ export function scheduleUpdateOnFiber(
         // Flush the synchronous work now, wnless we're already working or inside
         // a batch. This is intentionally inside scheduleUpdateOnFiber instead of
         // scheduleCallbackForFiber to preserve the ability to schedule a callback
-        // without immediately flushing it. We only do this for user-initated
+        // without immediately flushing it. We only do this for user-initiated
         // updates, to preserve historical behavior of sync mode.
         flushSyncCallbackQueue();
       }
@@ -1712,6 +1712,16 @@ function commitRootImpl(root) {
     rootDoesHavePassiveEffects = false;
     rootWithPendingPassiveEffects = root;
     pendingPassiveEffectsExpirationTime = expirationTime;
+  } else {
+    // We are done with the effect chain at this point so let's clear the
+    // nextEffect pointers to assist with GC. If we have passive effects, we'll
+    // clear this in flushPassiveEffects.
+    nextEffect = firstEffect;
+    while (nextEffect !== null) {
+      const nextNextEffect = nextEffect.nextEffect;
+      nextEffect.nextEffect = null;
+      nextEffect = nextNextEffect;
+    }
   }
 
   // Check if there's remaining work on this root
@@ -1947,7 +1957,10 @@ export function flushPassiveEffects() {
         captureCommitPhaseError(effect, error);
       }
     }
-    effect = effect.nextEffect;
+    const nextNextEffect = effect.nextEffect;
+    // Remove nextEffect pointer to assist GC
+    effect.nextEffect = null;
+    effect = nextNextEffect;
   }
 
   if (enableSchedulerTracing) {
@@ -2247,11 +2260,10 @@ function checkForNestedUpdates() {
 
 function flushRenderPhaseStrictModeWarningsInDEV() {
   if (__DEV__) {
-    ReactStrictModeWarnings.flushPendingUnsafeLifecycleWarnings();
     ReactStrictModeWarnings.flushLegacyContextWarning();
 
     if (warnAboutDeprecatedLifecycles) {
-      ReactStrictModeWarnings.flushPendingDeprecationWarnings();
+      ReactStrictModeWarnings.flushPendingUnsafeLifecycleWarnings();
     }
   }
 }
